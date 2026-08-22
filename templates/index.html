@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FitPilot AI — Multi-Agent Personal Fitness Coach</title>
+<link rel="icon" type="image/png" href="/static/logo-mark.png">
+<script>
+  // Runs before CSS/paint to avoid a flash of the wrong theme.
+  // Saved preference wins; otherwise fall back to the OS preference.
+  (function () {
+    try {
+      var saved = localStorage.getItem("fitmate-theme");
+      var theme = saved === "light" || saved === "dark"
+        ? saved
+        : (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+      document.documentElement.setAttribute("data-theme", theme);
+    } catch (e) {
+      document.documentElement.setAttribute("data-theme", "dark");
+    }
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-logo">
+      <img src="/static/logo-mark.png" alt="FitPilot AI logo" width="300" height="362">
+    </span>
+    <span class="brand-word">FITPILOT<span class="brand-word-accent">AI</span></span>
+  </div>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button class="tab-btn active" data-view="view-coach" role="tab" aria-selected="true">Coach</button>
+    <button class="tab-btn" data-view="view-progress" role="tab" aria-selected="false">Progress Log</button>
+  </nav>
+
+  <div class="topbar-right">
+    <div class="topbar-status">
+      <span class="status-dot"></span>
+      <span>2 MCP servers · Groq free tier</span>
+    </div>
+
+    <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch to light theme" aria-pressed="false">
+      <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="4"></circle>
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+      </svg>
+      <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"></path>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<main>
+
+  <!-- ============================================================ -->
+  <!-- COACH VIEW                                                    -->
+  <!-- ============================================================ -->
+  <section id="view-coach" class="view active">
+
+    <section class="hero">
+      <p class="eyebrow">Multi&#8209;agent · LangGraph · MCP · Supervisor · Guardrails · HITL</p>
+      <h1>Every rep, planned<br>by a team of specialists.</h1>
+      <p class="hero-sub">
+        Tell your coach your goal, fitness level, available equipment, and time —
+        a Supervisor agent delegates the work to Workout, Equipment, Nutrition
+        and Progress specialists, then you review the plan before it's final.
+      </p>
+
+      <div class="preset-row" id="presetRow">
+        <button class="preset-chip" data-preset="loss">Weight Loss</button>
+        <button class="preset-chip" data-preset="muscle">Muscle Gain</button>
+        <button class="preset-chip" data-preset="home">Beginner Home Workout</button>
+        <button class="preset-chip" data-preset="none">No Equipment</button>
+      </div>
+    </section>
+
+    <section class="intake-card">
+      <div class="intake-head">
+        <h2>Training intake</h2>
+        <p>Fill in what you know — the Supervisor fills in the rest.</p>
+      </div>
+
+      <form id="intakeForm">
+        <div class="field-grid">
+
+          <label class="field">
+            <span class="field-label">Goal</span>
+            <select id="fGoal">
+              <option value="">Not sure yet</option>
+              <option value="weight loss">Weight loss</option>
+              <option value="muscle gain">Muscle gain</option>
+              <option value="general fitness">General fitness / health</option>
+              <option value="endurance">Endurance / cardio</option>
+              <option value="strength">Strength</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span class="field-label">Fitness level</span>
+            <select id="fLevel">
+              <option value="">Not sure yet</option>
+              <option value="beginner">Beginner</option>
+              <option value="intermediate">Intermediate</option>
+              <option value="advanced">Advanced</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span class="field-label">Days per week</span>
+            <input type="number" id="fDays" min="1" max="7" placeholder="e.g. 4">
+          </label>
+
+          <label class="field">
+            <span class="field-label">Session duration</span>
+            <input type="text" id="fDuration" placeholder="e.g. 30 minutes">
+          </label>
+
+          <label class="field">
+            <span class="field-label">Age (optional)</span>
+            <input type="text" id="fAge" placeholder="e.g. 24">
+          </label>
+
+          <label class="field">
+            <span class="field-label">Progress tracking ID (optional)</span>
+            <input type="text" id="fUserId" placeholder="e.g. your name — reused in Progress Log">
+          </label>
+        </div>
+
+        <div class="field-full">
+          <span class="field-label">Available equipment</span>
+          <div class="chip-select" id="equipmentChips">
+            <button type="button" class="option-chip" data-value="none">No equipment</button>
+            <button type="button" class="option-chip" data-value="dumbbell">Dumbbells</button>
+            <button type="button" class="option-chip" data-value="resistance_band">Resistance bands</button>
+            <button type="button" class="option-chip" data-value="kettlebell">Kettlebell</button>
+            <button type="button" class="option-chip" data-value="barbell">Barbell</button>
+            <button type="button" class="option-chip" data-value="gym_machine">Full gym access</button>
+          </div>
+        </div>
+
+        <div class="field-full">
+          <span class="field-label">Anything else your coach should know?</span>
+          <textarea id="fMessage" rows="3" placeholder="e.g. I have a mild knee issue, prefer home workouts, and want to feel stronger for hiking."></textarea>
+        </div>
+
+        <button type="submit" id="submitBtn" class="primary-btn">
+          <span id="submitLabel">Generate my plan</span>
+          <span id="submitSpinner" class="spinner hidden"></span>
+        </button>
+      </form>
+    </section>
+
+    <!-- Guardrail blocked -->
+    <section id="guardrailBanner" class="guardrail-banner hidden">
+      <strong>This request needs to stay fitness-related.</strong>
+      <p id="guardrailReason"></p>
+    </section>
+
+    <!-- Agent pipeline -->
+    <section id="pipelineSection" class="pipeline-section hidden">
+      <h3>Loading the bar</h3>
+      <p class="pipeline-sub" id="supervisorReasoning"></p>
+
+      <div class="barbell-track">
+        <div class="barbell-sleeve left"></div>
+        <div class="barbell-bar" id="barbellBar"></div>
+        <div class="barbell-sleeve right"></div>
+      </div>
+
+      <div class="stage-row" id="stageRow">
+        <div class="stage" data-agent="supervisor"><span class="stage-dot"></span>Supervisor</div>
+        <div class="stage" data-agent="workout_agent"><span class="stage-dot"></span>Workout</div>
+        <div class="stage" data-agent="equipment_agent"><span class="stage-dot"></span>Equipment</div>
+        <div class="stage" data-agent="nutrition_agent"><span class="stage-dot"></span>Nutrition</div>
+        <div class="stage" data-agent="progress_agent"><span class="stage-dot"></span>Progress</div>
+        <div class="stage" data-agent="fitness_plan_agent"><span class="stage-dot"></span>Plan</div>
+      </div>
+    </section>
+
+    <!-- Results -->
+    <section id="resultsSection" class="results-section hidden">
+      <div class="result-tabs" id="resultTabs">
+        <button class="result-tab-btn active" data-panel="panel-plan">Full Plan</button>
+        <button class="result-tab-btn" data-panel="panel-workout">Workout</button>
+        <button class="result-tab-btn" data-panel="panel-equipment">Equipment</button>
+        <button class="result-tab-btn" data-panel="panel-nutrition">Nutrition</button>
+        <button class="result-tab-btn" data-panel="panel-progress">Progress</button>
+      </div>
+
+      <div class="result-panel active" id="panel-plan"></div>
+      <div class="result-panel" id="panel-workout"></div>
+      <div class="result-panel" id="panel-equipment"></div>
+      <div class="result-panel" id="panel-nutrition"></div>
+      <div class="result-panel" id="panel-progress"></div>
+    </section>
+
+    <!-- HITL -->
+    <section id="hitlSection" class="hitl-section hidden">
+      <div class="hitl-head">
+        <span class="hitl-badge">Human review required</span>
+        <h3>Review your draft plan</h3>
+        <p id="approvalRequestText"></p>
+      </div>
+
+      <div class="hitl-actions">
+        <button id="approveBtn" class="approve-btn">Approve plan</button>
+        <div class="revise-box">
+          <textarea id="feedbackText" rows="2" placeholder="Request changes, e.g. &quot;I only have 30 minutes on weekdays&quot;"></textarea>
+          <button id="reviseBtn" class="revise-btn">Request changes</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Final -->
+    <section id="finalSection" class="final-section hidden">
+      <div class="final-badge">Final plan ready</div>
+      <div class="final-content" id="finalContent"></div>
+    </section>
+
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- PROGRESS VIEW                                                 -->
+  <!-- ============================================================ -->
+  <section id="view-progress" class="view">
+
+    <section class="hero hero-compact">
+      <p class="eyebrow">Adaptive coaching</p>
+      <h1>Log it. Your next plan adapts.</h1>
+      <p class="hero-sub">
+        Every logged session feeds the Progress Agent — completion rate,
+        difficulty, and energy shape the intensity of your next plan.
+      </p>
+    </section>
+
+    <div class="progress-grid">
+      <section class="intake-card">
+        <div class="intake-head">
+          <h2>Log a workout</h2>
+          <p>Use the same Progress tracking ID from the Coach tab.</p>
+        </div>
+
+        <form id="logForm">
+          <div class="field-grid">
+            <label class="field">
+              <span class="field-label">Progress tracking ID</span>
+              <input type="text" id="lUserId" placeholder="e.g. your name" required>
+            </label>
+            <label class="field">
+              <span class="field-label">Date</span>
+              <input type="date" id="lDate" required>
+            </label>
+            <label class="field">
+              <span class="field-label">Workout type</span>
+              <input type="text" id="lType" placeholder="e.g. Upper body">
+            </label>
+            <label class="field">
+              <span class="field-label">Duration (minutes)</span>
+              <input type="number" id="lDuration" min="0" max="300" placeholder="e.g. 40">
+            </label>
+          </div>
+
+          <label class="field field-full">
+            <span class="field-label">Completed the full session?</span>
+            <div class="toggle-row">
+              <button type="button" class="toggle-chip active" data-value="yes">Yes</button>
+              <button type="button" class="toggle-chip" data-value="no">No</button>
+            </div>
+          </label>
+
+          <div class="slider-grid">
+            <label class="field">
+              <span class="field-label">Difficulty <span class="slider-value" id="difficultyValue">5</span>/10</span>
+              <input type="range" id="lDifficulty" min="1" max="10" value="5">
+            </label>
+            <label class="field">
+              <span class="field-label">Energy <span class="slider-value" id="energyValue">5</span>/10</span>
+              <input type="range" id="lEnergy" min="1" max="10" value="5">
+            </label>
+          </div>
+
+          <label class="field field-full">
+            <span class="field-label">Notes (optional)</span>
+            <textarea id="lNotes" rows="2" placeholder="e.g. Shoulder felt tight during presses"></textarea>
+          </label>
+
+          <button type="submit" class="primary-btn">Log workout</button>
+        </form>
+      </section>
+
+      <section class="summary-card">
+        <div class="intake-head">
+          <h2>Your progress</h2>
+          <p>Pulled live from the Fitness Progress MCP server.</p>
+        </div>
+
+        <div class="lookup-row">
+          <input type="text" id="pUserId" placeholder="Progress tracking ID">
+          <button id="lookupBtn" class="ghost-btn">View summary</button>
+        </div>
+
+        <div id="summaryEmpty" class="summary-empty">
+          Enter a tracking ID and log at least one workout to see progress here.
+        </div>
+
+        <div id="summaryContent" class="summary-content hidden">
+          <div class="ring-row">
+            <div class="ring-wrap">
+              <svg viewBox="0 0 120 120" class="ring-svg">
+                <circle cx="60" cy="60" r="52" class="ring-track"></circle>
+                <circle cx="60" cy="60" r="52" class="ring-fill" id="ringFill"></circle>
+              </svg>
+              <div class="ring-label">
+                <span class="ring-number" id="ringNumber">0%</span>
+                <span class="ring-caption">completion</span>
+              </div>
+            </div>
+
+            <div class="stat-list">
+              <div class="stat-row">
+                <span class="stat-label">Sessions logged</span>
+                <span class="stat-value mono" id="statSessions">0</span>
+              </div>
+              <div class="stat-row">
+                <span class="stat-label">Avg. difficulty</span>
+                <span class="stat-value mono" id="statDifficulty">—</span>
+              </div>
+              <div class="stat-row">
+                <span class="stat-label">Avg. energy</span>
+                <span class="stat-value mono" id="statEnergy">—</span>
+              </div>
+            </div>
+          </div>
+
+          <h4 class="recent-title">Recent sessions</h4>
+          <ul class="recent-list" id="recentList"></ul>
+        </div>
+      </section>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <div class="footer-badges">
+    <span>LangGraph</span><span>MCP</span><span>Supervisor</span>
+    <span>Guardrails</span><span>Human-in-the-Loop</span><span>FastAPI</span><span>Groq (free tier)</span>
+  </div>
+  <p>FitPilot AI — built for Group 8: AI Personal Fitness Coach.</p>
+</footer>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="/static/script.js"></script>
+</body>
+</html>
