@@ -1,112 +1,98 @@
 """
-mcp_client.py
+progress_mcp_server.py
 =========================================================
-Wires up the two local MCP servers used by FitMate AI:
+MCP Server #2 : Fitness Progress Tracker
 
-  1. exercise_mcp_server.py   -> the exercise database
-  2. progress_mcp_server.py   -> user fitness profiles + workout logs
-
-Both servers are launched as local stdio subprocesses -- no external
-API keys, no network calls, no paid services. This keeps the hackathon
-demo 100% self-contained and reliable.
+Exposes tools to save a user's fitness profile, log completed workouts,
+and retrieve history/progress summaries. This lets the Progress Agent
+reason over REAL logged data instead of guessing, and lets the app
+demonstrate an "adapt my next workout" style feedback loop.
 """
 
-import sys
-from pathlib import Path
 from typing import Any
 
-from langchain_mcp_adapters.client import MultiServerMCPClient
-from tenacity import retry, stop_after_attempt, wait_exponential
+from mcp.server.fastmcp import FastMCP
 
-from observability import logger, usage
+import database as db
 
-BASE_DIR = Path(__file__).resolve().parent
-EXERCISE_SERVER_PATH = BASE_DIR / "exercise_mcp_server.py"
-PROGRESS_SERVER_PATH = BASE_DIR / "progress_mcp_server.py"
+mcp = FastMCP("Fitness Progress MCP Server")
 
-client = MultiServerMCPClient(
-    {
-        "exercise": {
-            "transport": "stdio",
-            "command": sys.executable,
-            "args": [str(EXERCISE_SERVER_PATH)],
-        },
-        "progress": {
-            "transport": "stdio",
-            "command": sys.executable,
-            "args": [str(PROGRESS_SERVER_PATH)],
-        },
+
+@mcp.tool()
+def save_fitness_profile(
+    user_id: str,
+    age: str = "",
+    goal: str = "",
+    fitness_level: str = "",
+    days_per_week: int = 0,
+    session_duration: str = "",
+    equipment: list[str] | None = None,
+    preferences: list[str] | None = None,
+    limitations: str = "",
+) -> dict[str, Any]:
+    """Create or update a user's fitness profile."""
+    profile = {
+        "age": age,
+        "goal": goal,
+        "fitness_level": fitness_level,
+        "days_per_week": days_per_week,
+        "session_duration": session_duration,
+        "equipment": equipment or [],
+        "preferences": preferences or [],
+        "limitations": limitations,
     }
-)
+    return db.save_fitness_profile(user_id, profile)
 
 
-@retry(
-    wait=wait_exponential(multiplier=0.5, min=0.5, max=4),
-    stop=stop_after_attempt(3),
-    reraise=True,
-)
-async def _call_tool(server_name: str, tool_name: str, tool_args: dict[str, Any] | None = None):
+@mcp.tool()
+def get_fitness_profile(user_id: str) -> dict[str, Any]:
+    """Fetch a user's saved fitness profile, if one exists."""
+    profile = db.get_fitness_profile(user_id)
+    return profile or {"note": f"No saved profile found for user '{user_id}'."}
+
+
+@mcp.tool()
+def log_workout_session(
+    user_id: str,
+    session_date: str,
+    workout_type: str = "",
+    duration_minutes: int = 0,
+    completed: bool = True,
+    difficulty_rating: int = 0,
+    energy_level: int = 0,
+    notes: str = "",
+) -> dict[str, Any]:
     """
-    Load one tool from one MCP server and invoke it.
+    Log a completed (or skipped) workout session for a user.
 
-    Loading only the requested server keeps a problem in one server from
-    ever affecting the other (mirrors the isolation pattern used for the
-    original travel-agent MCP integrations). Retries with backoff cover
-    transient stdio-subprocess hiccups instead of failing the whole run.
+    Args:
+        session_date: ISO date string, e.g. "2026-08-22".
+        difficulty_rating: 1-10 subjective difficulty.
+        energy_level: 1-10 subjective energy during the workout.
     """
-    usage.total_mcp_calls += 1
-    try:
-        tools = await client.get_tools(server_name=server_name)
-        tool = next((t for t in tools if t.name == tool_name), None)
-
-        if tool is None:
-            available = ", ".join(sorted(t.name for t in tools)) or "none"
-            raise RuntimeError(
-                f"MCP tool '{tool_name}' was not found on server '{server_name}'. "
-                f"Available tools: {available}"
-            )
-
-        return await tool.ainvoke(tool_args or {})
-    except Exception as exc:
-        usage.total_errors += 1
-        logger.warning(
-            f"MCP call failed: {server_name}.{tool_name}",
-            extra={
-                "event": "mcp_error",
-                "server": server_name,
-                "tool": tool_name,
-                "error_type": type(exc).__name__,
-            },
-        )
-        raise
+    return db.log_workout_session(
+        user_id=user_id,
+        session_date=session_date,
+        workout_type=workout_type,
+        duration_minutes=duration_minutes or None,
+        completed=completed,
+        difficulty_rating=difficulty_rating or None,
+        energy_level=energy_level or None,
+        notes=notes,
+    )
 
 
-# =========================================================
-# Exercise Database MCP
-# =========================================================
-async def exercise_mcp_call(tool_name: str, tool_args: dict[str, Any] | None = None):
-    return await _call_tool("exercise", tool_name, tool_args)
+@mcp.tool()
+def get_workout_history(user_id: str, limit: int = 10) -> list[dict[str, Any]]:
+    """Return the most recent logged workout sessions for a user."""
+    return db.get_workout_history(user_id, limit=limit)
 
 
-# =========================================================
-# Fitness Progress MCP
-# =========================================================
-async def progress_mcp_call(tool_name: str, tool_args: dict[str, Any] | None = None):
-    return await _call_tool("progress", tool_name, tool_args)
-
-
-async def get_all_tools() -> None:
-    """Quick manual connectivity check for both MCP servers."""
-    for server_name in ("exercise", "progress"):
-        try:
-            tools = await client.get_tools(server_name=server_name)
-            names = ", ".join(t.name for t in tools) or "no tools"
-            print(f"{server_name}: OK -> {names}")
-        except Exception as exc:
-            print(f"{server_name}: FAILED -> {type(exc).__name__}: {exc}")
+@mcp.tool()
+def get_progress_summary(user_id: str) -> dict[str, Any]:
+    """Return adherence rate, average difficulty, and average energy for a user."""
+    return db.get_progress_summary(user_id)
 
 
 if __name__ == "__main__":
-    import asyncio
-
-    asyncio.run(get_all_tools())
+    mcp.run(transport="stdio")
